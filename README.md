@@ -1,130 +1,70 @@
-# fleet-template-v1
+# PHPUnit template
 
-## What This Template Is
+Provisioned from [`Qode-Fleet-Control/fleet-template-v1`](https://github.com/Qode-Fleet-Control/fleet-template-v1) — the fleet
+lifecycle contract (`bin/`, `fleet.conf`, `compose.yaml`, deploy workflows) with a
+PHPUnit 13 starter laid on top. **This repo is a job, not a service.**
 
-`fleet-template-v1` is a **language-agnostic app lifecycle harness** for apps
-managed by the fleet platform. It gives any app — Node, Python, Go, a Docker
-Compose stack, anything — a uniform way to be deployed and controlled, without
-the fleet needing to know a single thing about your stack.
+## Origin
 
-The fleet injects runtime variables into the environment (`PORT`, `BASE_PATH`,
-`DATABASE_URL`) and calls `./bin/run` to deploy. Everything project-specific —
-how to install, build, and start your app — lives in **one file: `fleet.conf`**.
-That is the only file you edit per project.
+PHPUnit ships no project generator; this follows its "Getting Started" guide, with each
+file it can generate produced by the tool itself:
 
-## Repository Structure
+    docker run --rm -u $(id -u):$(id -g) -v "$PWD":/w -w /w <php8.4 + composer:2 image> sh -c '
+      composer init --no-interaction --name=qode/phpunit-template --type=project \
+        --description="PHPUnit testing template" --autoload=src/ --stability=stable &&
+      composer require --dev --no-interaction phpunit/phpunit &&
+      printf "\n\n\n\n" | vendor/bin/phpunit --generate-configuration'   # all defaults
 
-```
-fleet.conf        ← the only file you edit per project
-.env              ← local-only env vars (gitignored)
-bin/
-  _common.sh      ← shared logic; never edit this
-  run             ← install + build + start (called by the fleet)
-  start           ← start only (no rebuild)
-  restart         ← stop + full run
-  reload          ← hot-reload config without rebuild
-  stop            ← stop the running process
-```
+Generated 2026-10-05 (phpunit/phpunit ^13.4, PHP 8.4.26). `src/` and `tests/` are
+hand-written: the guide's `Greeter` example plus a `Calculator` showing a data provider,
+`setUp()` and exception expectations. `vendor/` was removed; `composer.lock` is kept.
 
-## The One File You Edit: `fleet.conf`
+## Run it
 
-`fleet.conf` is sourced as shell by the lifecycle scripts. Fill in the commands
-for your stack; leave any command empty (`''`) to skip that step.
+**On the fleet** — `bin/run` (docker runtime) runs `docker compose build` and stops
+there: `DOCKER_START_CMD` is empty because nothing listens on `$PORT`. Run the suite with
 
-```sh
-NAME="my-app"           # label shown in fleet logs
-PORT="3000"             # default port (fleet overrides via $PORT env var)
-HEALTH_PATH="/"         # HTTP path that returns 200 when the app is ready
+    docker compose run --rm app        # exits 0 when every test passes
 
-INSTALL_CMD='npm ci'
-BUILD_CMD='npm run build'
-START_CMD='node dist/server.js'   # must listen on $PORT; run in foreground
-RELOAD_CMD=''           # optional; empty → falls back to stop+start
-```
+**Without docker** (PHP 8.4+, composer):
 
-> **Critical rule:** single-quote any command that uses `$PORT` or
-> `$BASE_PATH`. Single quotes defer variable expansion to **runtime** — when the
-> command actually runs, with the fleet-injected value — rather than at the
-> moment `fleet.conf` is sourced (when those values aren't set yet). Use
-> `START_CMD='gunicorn app:app --bind 0.0.0.0:$PORT'`, never double quotes.
+    composer install
+    vendor/bin/phpunit                 # or: composer test
 
-## How the Lifecycle Works
+| step | process runtime | docker runtime |
+|---|---|---|
+| install | `composer install --no-interaction` | — |
+| build | — | `docker compose build` |
+| start | (none — not a service) | (none — `docker compose run --rm app` runs the job) |
 
-| Script | What it does | When to use |
-| --- | --- | --- |
-| `bin/run` | `INSTALL_CMD` → `BUILD_CMD` → `START_CMD` | Fleet deploy, fresh start |
-| `bin/start` | `START_CMD` only | Restart without rebuild |
-| `bin/restart` | stop + `bin/run` | After a code/dep change |
-| `bin/reload` | `RELOAD_CMD`, or stop+start if empty | After a config-only change |
-| `bin/stop` | Kill by pidfile or port | Tear down |
+## How the container works
 
-> The process PID is written to `.fleet/app.pid` so subsequent `stop`/`restart`
-> calls can find and terminate it reliably. If the pidfile is missing or stale,
-> `stop` falls back to freeing whatever is listening on `$PORT`.
+- `Dockerfile`: `php:8.4-cli-alpine` with composer, dev dependencies installed (PHPUnit
+  is one), `php.ini-development` enabled, non-root user `app`; `CMD vendor/bin/phpunit`.
+- `phpunit.xml` is the generated one: strict (`failOnRisky`, `failOnWarning`,
+  `requireCoverageMetadata` — hence `#[CoversClass]` on every test class) and
+  `warnWhenPhpIsNotConfiguredForDevelopment`, which is why the image uses
+  `php.ini-development`.
 
-## How to Apply This to Your Project
+## Deviations from the stock generator output, and why
 
-### Step 1 — Copy the template into your repo
+- `composer.json`: `autoload-dev` for `tests/` and a `test` script (`phpunit`) added;
+  `composer.lock` refreshed with `composer update --lock` to match.
+- Added `Dockerfile`, `compose.yaml` (no ports), `.dockerignore`, `.gitignore`,
+  `fleet.conf`, `bin/`, `.github/workflows/`, `docs/fleet-lifecycle.md`.
 
-```sh
-cp -r fleet-template-v1/* my-project/
-```
+## If you add HTTP
 
-Or, if starting fresh, just clone it and work from `main`.
+Fleet apps are served at the root of their own hostname. Listen on `0.0.0.0:$PORT`, then
+set `PORT`, `HEALTH_PATH`, `START_CMD` and `DOCKER_START_CMD` in `fleet.conf` and publish
+`"${PORT}:${PORT}"` in `compose.yaml`.
 
-### Step 2 — Edit `fleet.conf` (the only required change)
+## Verified
 
-Fill in your stack's commands. Per-stack examples:
+**Not verified yet.** `docker compose build` + `docker compose run --rm app` was never
+reached: on 2026-10-05 the shared docker host's disk sat at 0-2 GB free (98 GB volume at
+99-100%) for more than three hours, below the 6 GB gate builds wait for. Run both before
+trusting this template. What *was* checked: `php -l` on every file in `src/` and
+`tests/` → clean; `composer validate` → valid.
 
-```sh
-# Node.js
-INSTALL_CMD='npm ci'
-BUILD_CMD='npm run build'
-START_CMD='node dist/index.js'
-
-# Python (Gunicorn)
-INSTALL_CMD='pip install -r requirements.txt'
-BUILD_CMD=''
-START_CMD='gunicorn app:app --bind 0.0.0.0:$PORT'
-
-# Go
-INSTALL_CMD=''
-BUILD_CMD='go build -o ./out/server ./cmd/server'
-START_CMD='./out/server'
-
-# Docker Compose
-INSTALL_CMD=''
-BUILD_CMD='docker compose build'
-START_CMD='docker compose up'
-RELOAD_CMD='docker compose up -d --no-build'
-```
-
-### Step 3 — Set local env vars in `.env` (gitignored)
-
-```sh
-APP_NAME=My App
-DATABASE_URL=postgres://localhost/mydb
-```
-
-### Step 4 — Verify standalone
-
-```sh
-PORT=3001 bin/run      # should install, build, and serve on 3001
-curl http://localhost:3001/   # should 200
-```
-
-### Step 5 — Connect to the fleet
-
-Point the fleet at your repo. It will clone it, inject `PORT` / `BASE_PATH` /
-`DATABASE_URL`, and call `bin/run`. As long as your `START_CMD` listens on
-`$PORT` and `HEALTH_PATH` returns 200, the fleet will mark the app healthy.
-
-## Key Invariants
-
-- **`START_CMD` must run in the foreground and listen on `$PORT`.** Do not use a
-  dev server — HMR / hot-reload chunks 404 behind the ingress and will break the
-  app.
-- **Never put secrets in `fleet.conf`** — it's committed. Use `.env` locally;
-  the fleet injects secrets via the environment.
-- **`bin/_common.sh` is shared infrastructure** — don't edit it per project. All
-  project-specific configuration belongs in `fleet.conf`.
+See `docs/fleet-lifecycle.md` for the lifecycle scripts.

@@ -1,0 +1,22 @@
+{
+    "name": "qode/phpunit-template",
+    "description": "PHPUnit testing template",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "Qode\\PhpunitTemplate\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "require-dev": {
+        "phpunit/phpunit": "^13.4"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Qode\\PhpunitTemplate\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}
