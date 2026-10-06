@@ -6,7 +6,10 @@
 # sets warnWhenPhpIsNotConfiguredForDevelopment (and failOnWarning).
 FROM php:8.4-cli-alpine AS runtime
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# PHPUnit 13 checks that PHP is configured for development and turns a mismatch into a
+# runner warning, which fails the run: php.ini-development still caps memory at 128M.
 RUN cp "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini" \
+ && echo "memory_limit=-1" > "$PHP_INI_DIR/conf.d/zz-phpunit.ini" \
  && adduser -D -u 10001 -h /app app
 WORKDIR /app
 COPY composer.json composer.lock ./
